@@ -40,7 +40,7 @@ function Shell() {
           </Typography>
           <Typography variant="body2" color="text.secondary">{me.data.tenant}</Typography>
           <Box sx={{ flex: 1 }} />
-          <Stack direction="row" spacing={1} alignItems="center">
+          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
             <Chip size="small" label={ROLE_LABEL[me.data.role]} />
             <Chip size="small" variant="outlined" label={me.data.timeZone} title="Dates are shown and entered in this time zone" />
             <Typography variant="body2">{me.data.name}</Typography>
@@ -61,11 +61,16 @@ function Shell() {
   );
 }
 
+/** Reads the session at render time of the route, not once when App first rendered. */
+function RequireSession() {
+  return session.get() ? <Shell /> : <Navigate to="/login" replace />;
+}
+
 export function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
-      <Route path="/*" element={session.get() ? <Shell /> : <Navigate to="/login" replace />} />
+      <Route path="/*" element={<RequireSession />} />
     </Routes>
   );
 }

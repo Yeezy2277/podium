@@ -39,7 +39,7 @@ export function LoginPage() {
                   <Typography fontWeight={600}>{u.name}</Typography>
                   <Typography variant="body2" color="text.secondary">{WHAT_TO_TRY[u.role]}</Typography>
                 </Box>
-                <Stack direction="row" spacing={1}>
+                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                   <Chip size="small" label={u.tenant} />
                   <Chip size="small" label={u.role.replace("_", " ").toLowerCase()} />
                   <Chip size="small" variant="outlined" label={u.timeZone} />
