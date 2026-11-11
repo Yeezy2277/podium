@@ -4,6 +4,7 @@ import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { CampaignsService } from "./campaigns/campaigns.service";
 import { verifyQStashSignature } from "./scheduler/scheduler";
+import { config } from "./config";
 
 const Task = z.object({
   campaignId: z.string(),
@@ -24,12 +25,19 @@ export class InternalController {
   @HttpCode(200)
   async transition(@Req() req: Request & { rawBody?: Buffer }, @Headers("upstash-signature") signature?: string) {
     const raw = req.rawBody?.toString("utf8") ?? "";
-    const url = `${process.env.PUBLIC_API_URL ?? ""}/api/internal/transitions`;
-    const keys = [process.env.QSTASH_CURRENT_SIGNING_KEY ?? "", process.env.QSTASH_NEXT_SIGNING_KEY ?? ""];
-    if (!verifyQStashSignature({ jwt: signature ?? null, body: raw, url, keys })) throw new ForbiddenException("Bad signature");
-    const task = Task.safeParse(JSON.parse(raw));
+    const c = config();
+    const url = `${c.PUBLIC_API_URL ?? ""}/api/internal/transitions`;
+    if (!verifyQStashSignature({ jwt: signature ?? null, body: raw, url, keys: c.signingKeys })) throw new ForbiddenException("Bad signature");
     // A malformed task will never succeed: acknowledge so QStash stops retrying.
-    if (!task.success) return { kind: "dropped" };
+    // That includes a body that isn't JSON; throwing would be a 500 retried forever.
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return { kind: "dropped", reason: "body is not JSON" };
+    }
+    const task = Task.safeParse(parsed);
+    if (!task.success) return { kind: "dropped", reason: "malformed task" };
     return this.campaigns.runTask(task.data);
   }
 
@@ -38,8 +46,8 @@ export class InternalController {
   @Get("sweep") // Vercel cron uses GET
   @HttpCode(200)
   sweep(@Headers("authorization") auth?: string) {
-    const secret = process.env.CRON_SECRET;
-    const allowed = secret ? same(auth?.replace(/^Bearer\s+/i, ""), secret) : process.env.NODE_ENV !== "production";
+    const { CRON_SECRET: secret, NODE_ENV } = config();
+    const allowed = secret ? same(auth?.replace(/^Bearer\s+/i, ""), secret) : NODE_ENV !== "production";
     if (!allowed) throw new ForbiddenException();
     return this.campaigns.sweep();
   }
