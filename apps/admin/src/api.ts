@@ -20,12 +20,16 @@ export const session = {
   },
 };
 
-/** The API's error shape, from Zod validation or a domain rule. */
+type FieldError = { path: string; message: string };
+
+/** The API's one error envelope: `{ error, message, details?, requestId }`. */
 export class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
-    readonly fields: { path: string; message: string }[] = [],
+    readonly fields: FieldError[] = [],
+    readonly code = "http_error",
+    readonly requestId?: string,
   ) {
     super(message);
   }
@@ -47,9 +51,10 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
   const body = res.status === 204 ? undefined : await res.json().catch(() => undefined);
   if (!res.ok) {
-    const b = (body ?? {}) as { message?: string | { message?: string; fields?: [] }; fields?: [] };
-    const nested = typeof b.message === "object" ? b.message : undefined;
-    throw new ApiError(res.status, (nested?.message ?? (b.message as string)) || res.statusText, nested?.fields ?? b.fields ?? []);
+    const b = (body ?? {}) as { error?: string; message?: string; details?: unknown; requestId?: string };
+    // Validation errors carry per-field details; other errors may carry anything, so only take a list of fields.
+    const fields = Array.isArray(b.details) ? (b.details as FieldError[]).filter((f) => typeof f?.path === "string") : [];
+    throw new ApiError(res.status, b.message || res.statusText || "Request failed", fields, b.error, b.requestId);
   }
   return body as T;
 }
