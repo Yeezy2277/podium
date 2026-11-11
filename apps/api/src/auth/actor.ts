@@ -9,14 +9,12 @@ import type { Request } from "express";
 import type { Actor } from "../domain/access";
 import { PrismaService } from "../prisma.service";
 import { verifyToken } from "./token";
+import { config } from "../config";
 
 type WithActor = Request & { actor?: Actor };
 
-export const sessionSecret = () => {
-  const s = process.env.SESSION_SECRET;
-  if (!s && process.env.NODE_ENV === "production") throw new Error("SESSION_SECRET is required in production");
-  return s ?? "dev-only-session-secret";
-};
+// Config validation already refuses to boot production without a secret.
+export const sessionSecret = () => config().SESSION_SECRET ?? "dev-only-session-secret";
 
 /**
  * Resolves the caller into an Actor once per request: tenant, role, and the
@@ -30,13 +28,13 @@ export class ActorGuard implements CanActivate {
     const req = ctx.switchToHttp().getRequest<WithActor>();
     const token = req.headers.authorization?.replace(/^Bearer\s+/i, "");
     const userId = verifyToken(token, sessionSecret());
-    if (!userId) throw new UnauthorizedException("Sign in again");
+    if (!userId) throw new UnauthorizedException("Your session expired or is invalid. Sign in again.");
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       include: { brands: { select: { brandId: true } } },
     });
-    if (!user) throw new UnauthorizedException("Sign in again");
+    if (!user) throw new UnauthorizedException("Your session expired or is invalid. Sign in again.");
 
     const brandIds =
       user.role === "OWNER"

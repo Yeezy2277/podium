@@ -1,10 +1,11 @@
-import { BadRequestException, Body, Controller, ForbiddenException, Get, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, ForbiddenException, Get, Post, UseGuards } from "@nestjs/common";
 import { z } from "zod";
 import { ActorGuard, CurrentActor, sessionSecret } from "./auth/actor";
 import { issueToken } from "./auth/token";
 import { ZodPipe } from "./common/http";
 import type { Actor } from "./domain/access";
-import { demoLoginEnabled } from "./config";
+import { config, demoLoginEnabled } from "./config";
+import { invalid } from "./domain/errors";
 import { PrismaService } from "./prisma.service";
 
 const DemoLogin = z.object({ email: z.string().email() });
@@ -28,7 +29,7 @@ export class MeController {
   async demoLogin(@Body(new ZodPipe(DemoLogin)) body: z.infer<typeof DemoLogin>) {
     if (!demoLoginEnabled()) throw new ForbiddenException();
     const user = await this.prisma.user.findUnique({ where: { email: body.email } });
-    if (!user) throw new BadRequestException("No such demo user");
+    if (!user) throw invalid("No such demo user. Pick one from the list.");
     return { token: issueToken(user.id, sessionSecret()) };
   }
 
@@ -46,8 +47,10 @@ export class MeController {
       db,
       dbMs: Date.now() - started,
       demoLogin: demoLoginEnabled(),
-      sessionSecret: Boolean(process.env.SESSION_SECRET),
-      scheduler: process.env.QSTASH_TOKEN && process.env.PUBLIC_API_URL ? "qstash" : "sweep-only",
+      sessionSecret: Boolean(config().SESSION_SECRET),
+      scheduler: config().scheduler,
+      // Without it the daily sweep refuses every call in production; surfaced here rather than crashing boot.
+      cronSecret: Boolean(config().CRON_SECRET),
     };
   }
 
