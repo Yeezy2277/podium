@@ -10,7 +10,17 @@ export default defineConfig({
   // Vendor chunks change rarely, so returning visitors keep them cached across deploys.
   build: {
     rollupOptions: {
-      output: { manualChunks: { react: ["react", "react-dom", "react-router-dom"], mui: ["@mui/material"], grid: ["@mui/x-data-grid"] } },
+      output: {
+        // Function form: only modules the app actually imports land in each chunk
+        // (the object form pulls in a package's whole entry, i.e. all of MUI).
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return undefined;
+          if (id.includes("@mui/x-data-grid")) return "grid";
+          if (/@mui|@emotion/.test(id)) return "mui";
+          if (/[\\/](react|react-dom|react-router|react-router-dom|scheduler)[\\/]/.test(id)) return "react";
+          return undefined;
+        },
+      },
     },
   },
 });

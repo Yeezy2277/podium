@@ -1,18 +1,30 @@
-import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Stack, Typography } from "@mui/material";
-import { DataGrid, type GridColDef, type GridPaginationModel } from "@mui/x-data-grid";
+import { Alert, Box, Button, Card, CardContent, Chip, Stack, Typography } from "@mui/material";
+import { DataGrid, type GridColDef } from "@mui/x-data-grid";
 import type { LeaderboardRow } from "@podium/shared";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api";
 import { useMe } from "../App";
 import { STATUS_COLOR, formatInZone, money } from "../format";
+import { Loading } from "../ui";
+import { Rank } from "../brand";
+
+const PAGE_SIZES = [10, 25, 50];
 
 export function CampaignDetailPage() {
   const { id = "" } = useParams();
   const me = useMe();
   const qc = useQueryClient();
-  const [paging, setPaging] = useState<GridPaginationModel>({ page: 0, pageSize: 10 });
+  // Leaderboard paging in the URL: a reload or a shared link lands on the same page.
+  const [sp, setSp] = useSearchParams();
+  const size = Number(sp.get("size"));
+  const paging = { page: Math.max(0, Number(sp.get("page")) || 0), pageSize: PAGE_SIZES.includes(size) ? size : 10 };
+  const setPaging = (m: { page: number; pageSize: number }) => {
+    const out = new URLSearchParams();
+    if (m.page) out.set("page", String(m.page));
+    if (m.pageSize !== 10) out.set("size", String(m.pageSize));
+    setSp(out, { replace: true });
+  };
   const campaign = useQuery({ queryKey: ["campaign", id], queryFn: () => api.campaign(id) });
   const board = useQuery({
     queryKey: ["leaderboard", id, paging],
@@ -28,8 +40,20 @@ export function CampaignDetailPage() {
     },
   });
 
-  if (campaign.isPending) return <CircularProgress />;
-  if (campaign.isError) return <Alert severity="error">{campaign.error.message}</Alert>;
+  if (campaign.isPending) return <Loading what="the campaign" />;
+  if (campaign.isError) {
+    return (
+      <Stack spacing={2} alignItems="flex-start">
+        <Typography variant="h5" component="h1" fontWeight={700}>Campaign unavailable</Typography>
+        <Alert severity="error">
+          {campaign.error instanceof ApiError && campaign.error.status === 404
+            ? "This campaign doesn't exist, or it isn't on a brand you can see."
+            : `Couldn't load it: ${campaign.error.message}`}
+        </Alert>
+        <Button component={Link} to="/">Back to campaigns</Button>
+      </Stack>
+    );
+  }
   const c = campaign.data;
 
   // The UI only offers what the API would allow; the API enforces it regardless.
@@ -38,7 +62,7 @@ export function CampaignDetailPage() {
   const editable = canEdit && ["DRAFT", "SCHEDULED", "LIVE"].includes(c.status);
 
   const columns: GridColDef<LeaderboardRow>[] = [
-    { field: "rank", headerName: "#", width: 70 },
+    { field: "rank", headerName: "Place", width: 80, renderCell: ({ row }) => <Rank rank={row.rank} /> },
     { field: "displayName", headerName: "Customer", flex: 1, minWidth: 160 },
     {
       field: "score",
@@ -62,7 +86,7 @@ export function CampaignDetailPage() {
     <Stack spacing={2}>
       <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
         <Button component={Link} to="/" size="small">← Campaigns</Button>
-        <Typography variant="h5" fontWeight={700} sx={{ flex: 1 }}>{c.name}</Typography>
+        <Typography variant="h5" component="h1" fontWeight={700} sx={{ flex: 1 }}>{c.name}</Typography>
         <Chip color={STATUS_COLOR[c.status]} label={c.status.toLowerCase()} />
         {editable && <Button component={Link} to={`/campaigns/${id}/edit`} variant="outlined">Edit</Button>}
         {canEdit && c.status === "DRAFT" && (
@@ -72,7 +96,27 @@ export function CampaignDetailPage() {
           <Button color="error" onClick={() => act.mutate("cancel")} disabled={act.isPending}>Cancel campaign</Button>
         )}
       </Stack>
-      {act.error && <Alert severity="error">{act.error instanceof ApiError ? act.error.message : "Something went wrong"}</Alert>}
+      {act.error && (
+        <Alert
+          severity="error"
+          action={
+            act.error instanceof ApiError && act.error.status === 409 ? (
+              <Button
+                color="inherit"
+                size="small"
+                onClick={() => {
+                  act.reset();
+                  void campaign.refetch();
+                }}
+              >
+                Reload
+              </Button>
+            ) : undefined
+          }
+        >
+          {act.error.message}
+        </Alert>
+      )}
       {!canEdit && me.role === "BRAND_MANAGER" && (
         <Alert severity="info">This campaign includes brands you don't manage, so it's read-only for you.</Alert>
       )}
@@ -88,9 +132,15 @@ export function CampaignDetailPage() {
         </CardContent>
       </Card>
 
-      <Typography variant="h6">Leaderboard</Typography>
+      <Typography variant="h6" component="h2" id="board-h">Leaderboard</Typography>
+      {board.isError && (
+        <Alert severity="error" action={<Button color="inherit" size="small" onClick={() => void board.refetch()}>Retry</Button>}>
+          Couldn't load the leaderboard: {board.error.message}
+        </Alert>
+      )}
       <Box>
         <DataGrid
+          aria-labelledby="board-h"
           autoHeight
           rows={board.data?.rows ?? []}
           getRowId={(r) => r.customerId}

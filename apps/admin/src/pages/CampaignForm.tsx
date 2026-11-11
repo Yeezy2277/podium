@@ -1,13 +1,19 @@
-import { Alert, Box, Button, Card, CardContent, Checkbox, CircularProgress, FormControlLabel, FormGroup, FormHelperText, IconButton, MenuItem, Stack, TextField, Typography } from "@mui/material";
+import { Alert, Box, Button, Card, CardContent, Checkbox, FormControl, FormControlLabel, FormGroup, FormHelperText, FormLabel, IconButton, MenuItem, Stack, TextField, Typography } from "@mui/material";
 import { CampaignInput, METRICS, PRIZE_TYPES, minorDigits, parseMoney } from "@podium/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError, type CampaignDetail } from "../api";
 import { useMe } from "../App";
 import { toLocalInput } from "../format";
+import { Loading } from "../ui";
+import type { Me } from "../api";
 
-type PrizeDraft = { type: (typeof PRIZE_TYPES)[number]; amount: string };
+/** `key` is a client-side id: rows can be removed, so the index can't identify them. */
+type PrizeDraft = { key: string; type: (typeof PRIZE_TYPES)[number]; amount: string };
+
+let nextKey = 0;
+const prizeKey = () => `prize-${++nextKey}`;
 type Draft = {
   name: string;
   brandIds: string[];
@@ -28,30 +34,50 @@ function fromCampaign(c: CampaignDetail, zone: string): Draft {
     startsAtLocal: toLocalInput(c.startsAt, zone),
     endsAtLocal: toLocalInput(c.endsAt, zone),
     minOrder: c.minOrderMinor ? majorString(c.minOrderMinor, c.currency) : "",
-    prizes: c.prizes.map((p) => ({ type: p.type, amount: majorString(p.amountMinor, c.currency) })),
+    prizes: c.prizes.map((p) => ({ key: prizeKey(), type: p.type, amount: majorString(p.amountMinor, c.currency) })),
   };
 }
 
-export function CampaignFormPage() {
-  const { id } = useParams();
-  const me = useMe();
-  const navigate = useNavigate();
-  const qc = useQueryClient();
-  const existing = useQuery({ queryKey: ["campaign", id], queryFn: () => api.campaign(id!), enabled: !!id });
-
-  const [draft, setDraft] = useState<Draft>({
+function emptyDraft(me: Me): Draft {
+  return {
     name: "",
     brandIds: me.brands.length === 1 ? [me.brands[0]!.id] : [],
     metric: "TOTAL_SPEND",
     startsAtLocal: "",
     endsAtLocal: "",
     minOrder: "",
-    prizes: [{ type: "COUPON", amount: "" }],
-  });
+    prizes: [{ key: prizeKey(), type: "COUPON", amount: "" }],
+  };
+}
+
+/** Loads the campaign (when editing), then mounts the editor once with it. */
+export function CampaignFormPage() {
+  const { id } = useParams();
+  const existing = useQuery({ queryKey: ["campaign", id], queryFn: () => api.campaign(id!), enabled: !!id });
+
+  if (!id) return <CampaignEditor key="new" />;
+  if (existing.isPending) return <Loading what="the campaign" />;
+  if (existing.isError) {
+    return (
+      <Alert severity="error" action={<Button color="inherit" size="small" onClick={() => void existing.refetch()}>Retry</Button>}>
+        Couldn't load the campaign to edit: {existing.error.message}
+      </Alert>
+    );
+  }
+  // Keyed by id + version: the draft is initialised from this snapshot and a
+  // background refetch never overwrites what the user is typing.
+  return <CampaignEditor key={`${id}:${existing.data.version}`} existing={existing.data} />;
+}
+
+export function CampaignEditor({ existing }: { existing?: CampaignDetail }) {
+  const id = existing?.id;
+  const me = useMe();
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  const [draft, setDraft] = useState<Draft>(() => (existing ? fromCampaign(existing, me.timeZone) : emptyDraft(me)));
   const [errors, setErrors] = useState<Record<string, string>>({});
-  useEffect(() => {
-    if (existing.data) setDraft(fromCampaign(existing.data, me.timeZone));
-  }, [existing.data, me.timeZone]);
+  // The version this edit started from: saving sends it, so a concurrent save is a 409, not a silent overwrite.
+  const [baseVersion] = useState(existing?.version);
 
   // Brands decide the currency; mixing currencies is refused by the API and flagged here first.
   const currencies = useMemo(
@@ -59,10 +85,10 @@ export function CampaignFormPage() {
     [me.brands, draft.brandIds],
   );
   const currency = currencies.length === 1 ? currencies[0]! : "USD";
-  const live = existing.data?.status === "LIVE";
+  const live = existing?.status === "LIVE";
 
   const save = useMutation({
-    mutationFn: (input: CampaignInput) => (id ? api.update(id, input, existing.data!.version) : api.create(input)),
+    mutationFn: (input: CampaignInput) => (id ? api.update(id, input, baseVersion!) : api.create(input)),
     onSuccess: (c) => {
       qc.setQueryData(["campaign", c.id], c);
       void qc.invalidateQueries({ queryKey: ["campaigns"] });
@@ -103,7 +129,6 @@ export function CampaignFormPage() {
     if (Object.keys(fieldErrors).length === 0 && parsed.success) save.mutate(parsed.data);
   }
 
-  if (id && existing.isPending) return <CircularProgress />;
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setDraft((d) => ({ ...d, [k]: v }));
 
   return (
@@ -111,26 +136,40 @@ export function CampaignFormPage() {
       <Stack spacing={2} sx={{ maxWidth: 760 }}>
         <Stack direction="row" spacing={2} alignItems="center">
           <Button component={Link} to={id ? `/campaigns/${id}` : "/"} size="small">← Back</Button>
-          <Typography variant="h5" fontWeight={700}>{id ? "Edit campaign" : "New campaign"}</Typography>
+          <Typography variant="h5" component="h1" fontWeight={700}>{id ? "Edit campaign" : "New campaign"}</Typography>
         </Stack>
         {live && <Alert severity="info">This campaign is live: you can rename it or move its end. Brands, prizes and the minimum order are locked.</Alert>}
-        {save.error && <Alert severity="error">{save.error.message}</Alert>}
+        {save.error && (
+          <Alert
+            severity="error"
+            action={
+              save.error instanceof ApiError && save.error.status === 409 ? (
+                <Button color="inherit" size="small" onClick={() => void qc.invalidateQueries({ queryKey: ["campaign", id] })}>
+                  Reload
+                </Button>
+              ) : undefined
+            }
+          >
+            {save.error.message}
+            {save.error instanceof ApiError && save.error.status === 409 && " Reloading discards your edits here."}
+          </Alert>
+        )}
 
         <Card variant="outlined">
           <CardContent>
             <Stack spacing={2}>
               <TextField id="name" label="Name" value={draft.name} onChange={(e) => set("name", e.target.value)} error={!!errors.name} helperText={errors.name} required />
-              <Box>
-                <Typography variant="subtitle2">Brands</Typography>
-                <FormGroup row>
+              <FormControl component="fieldset" error={!!errors.brandIds} disabled={live}>
+                <FormLabel component="legend">Brands</FormLabel>
+                <FormGroup row aria-describedby={errors.brandIds ? "brands-error" : undefined}>
                   {me.brands.map((b) => (
                     <FormControlLabel
                       key={b.id}
-                      disabled={live}
                       control={
                         <Checkbox
                           id={`brand-${b.id}`}
                           checked={draft.brandIds.includes(b.id)}
+                          inputProps={{ "aria-invalid": !!errors.brandIds }}
                           onChange={(e) => set("brandIds", e.target.checked ? [...draft.brandIds, b.id] : draft.brandIds.filter((x) => x !== b.id))}
                         />
                       }
@@ -138,8 +177,8 @@ export function CampaignFormPage() {
                     />
                   ))}
                 </FormGroup>
-                {errors.brandIds && <FormHelperText error>{errors.brandIds}</FormHelperText>}
-              </Box>
+                {errors.brandIds && <FormHelperText id="brands-error" role="alert">{errors.brandIds}</FormHelperText>}
+              </FormControl>
               <TextField id="metric" select label="Rank customers by" value={draft.metric} onChange={(e) => set("metric", e.target.value as Draft["metric"])} disabled={live}>
                 <MenuItem value="TOTAL_SPEND">Total spend</MenuItem>
                 <MenuItem value="ORDER_COUNT">Number of orders</MenuItem>
@@ -166,30 +205,30 @@ export function CampaignFormPage() {
 
         <Card variant="outlined">
           <CardContent>
-            <Typography variant="subtitle1" fontWeight={600} gutterBottom>Prizes</Typography>
-            <Stack spacing={1.5}>
+            <Typography variant="subtitle1" component="h2" fontWeight={600} gutterBottom id="prizes-h">Prizes</Typography>
+            <Stack spacing={1.5} role="group" aria-labelledby="prizes-h" aria-describedby={errors.prizes ? "prizes-error" : undefined}>
               {draft.prizes.map((p, i) => (
-                <Stack key={i} direction="row" spacing={1.5} alignItems="flex-start">
-                  <Typography sx={{ width: 48, pt: 1 }} color="text.secondary">#{i + 1}</Typography>
+                <Stack key={p.key} direction="row" spacing={1.5} alignItems="flex-start" flexWrap="wrap" useFlexGap>
+                  <Typography sx={{ width: 48, pt: 1 }} color="text.secondary" aria-hidden="true">#{i + 1}</Typography>
                   <TextField
-                    id={`prize-type-${i}`} select size="small" value={p.type} disabled={live} sx={{ width: 150 }}
-                    onChange={(e) => set("prizes", draft.prizes.map((x, j) => (j === i ? { ...x, type: e.target.value as PrizeDraft["type"] } : x)))}
+                    id={`${p.key}-type`} select size="small" label={`Place ${i + 1} type`} value={p.type} disabled={live} sx={{ width: 150 }}
+                    onChange={(e) => set("prizes", draft.prizes.map((x) => (x.key === p.key ? { ...x, type: e.target.value as PrizeDraft["type"] } : x)))}
                   >
                     {PRIZE_TYPES.map((t) => <MenuItem key={t} value={t}>{t.toLowerCase()}</MenuItem>)}
                   </TextField>
                   <TextField
-                    id={`prize-amount-${i}`} size="small" label={`Amount (${currency})`} value={p.amount} inputMode="decimal" disabled={live}
-                    onChange={(e) => set("prizes", draft.prizes.map((x, j) => (j === i ? { ...x, amount: e.target.value } : x)))}
+                    id={`${p.key}-amount`} size="small" label={`Place ${i + 1} amount (${currency})`} value={p.amount} inputMode="decimal" disabled={live}
+                    onChange={(e) => set("prizes", draft.prizes.map((x) => (x.key === p.key ? { ...x, amount: e.target.value } : x)))}
                     error={!!errors[`prizes.${i}.amountMinor`]} helperText={errors[`prizes.${i}.amountMinor`]}
                   />
-                  <IconButton aria-label={`Remove prize ${i + 1}`} disabled={live || draft.prizes.length === 1} onClick={() => set("prizes", draft.prizes.filter((_, j) => j !== i))}>
-                    ×
+                  <IconButton aria-label={`Remove prize ${i + 1}`} disabled={live || draft.prizes.length === 1} onClick={() => set("prizes", draft.prizes.filter((x) => x.key !== p.key))}>
+                    <span aria-hidden="true">×</span>
                   </IconButton>
                 </Stack>
               ))}
-              {errors.prizes && <FormHelperText error>{errors.prizes}</FormHelperText>}
+              {errors.prizes && <FormHelperText error id="prizes-error" role="alert">{errors.prizes}</FormHelperText>}
               <Box>
-                <Button size="small" disabled={live} onClick={() => set("prizes", [...draft.prizes, { type: draft.prizes.at(-1)?.type ?? "COUPON", amount: "" }])}>
+                <Button size="small" disabled={live} onClick={() => set("prizes", [...draft.prizes, { key: prizeKey(), type: draft.prizes.at(-1)?.type ?? "COUPON", amount: "" }])}>
                   Add place
                 </Button>
               </Box>
