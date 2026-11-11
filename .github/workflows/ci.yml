@@ -20,6 +20,8 @@ jobs:
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/podium
       DATABASE_URL_UNPOOLED: postgresql://postgres:postgres@localhost:5432/podium
+      # Runs api.int.test.ts against this throwaway, seeded database only.
+      PODIUM_INTEGRATION: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -29,6 +31,7 @@ jobs:
       - run: npm ci
       - run: npm run build -w @podium/shared
       - run: npx prisma migrate deploy --schema apps/api/prisma/schema.prisma
+      - run: npm run db:seed -w @podium/api
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
