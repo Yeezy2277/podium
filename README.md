@@ -61,6 +61,27 @@ Ranking runs in Postgres: one aggregate with `RANK() OVER (ORDER BY …)` across
 the campaign's brands and window, paginated server-side, ties sharing a place.
 Campaign lists load relations in a single batched query plus a count.
 
+### Failing loudly, answering consistently
+The env is parsed with Zod before Nest boots: a missing `DATABASE_URL`,
+production without `SESSION_SECRET`, or QStash without its signing key or
+public URL stops the API with every problem listed (never a value). Every
+error, whether from a domain rule, validation, auth or a crash, leaves as one envelope,
+`{ error, message, details?, requestId }`, with `x-request-id` on every
+response; unexpected errors are logged under that id, never echoed. If QStash
+is down when a campaign is saved, the save still stands and the daily sweep
+applies the transition.
+
+## Tests
+
+- **Unit:** domain rules (access, lifecycle), time zones across DST, money,
+  config parsing, the error envelope.
+- **Integration:** `apps/api/src/api.int.test.ts` boots the real Nest app
+  against a seeded Postgres in CI: 401 envelope with request id, cross-tenant
+  ids → 404, brand-scoped viewers, a viewer's write → 403, stale version →
+  409, validation details, no persistence fields in responses, unsigned
+  transition → 403. Skipped locally unless `PODIUM_INTEGRATION=1`, so it never
+  touches a real database by accident.
+
 ## Layout
 
 ```
