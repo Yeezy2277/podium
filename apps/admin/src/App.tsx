@@ -5,6 +5,8 @@ import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-r
 import { api, session, type Me } from "./api";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { Loading, SkipLink } from "./ui";
+import { PodiumMark } from "./brand";
+import { tokens } from "./theme";
 import { LoginPage } from "./pages/Login";
 
 // Route-level splitting: the form and detail pages (and the grid inside them) load on demand.
@@ -39,20 +41,28 @@ function Shell() {
   return (
     <MeContext.Provider value={me.data}>
       <SkipLink />
-      <AppBar position="sticky" color="default" elevation={0} sx={{ borderBottom: 1, borderColor: "divider" }}>
-        <Toolbar sx={{ gap: 2, flexWrap: "wrap" }}>
-          <Box component="nav" aria-label="Main" sx={{ display: "flex", alignItems: "baseline", gap: 2 }}>
-            <Typography component={Link} to="/" sx={{ textDecoration: "none", color: "inherit", fontWeight: 800, fontSize: "1.25rem" }}>
-              Podium
+      {/* The frame carries the identity: a navy bar with a gold rule; the data area below stays quiet. */}
+      <AppBar
+        position="sticky"
+        elevation={0}
+        sx={{ bgcolor: tokens.navy, color: "#fff", borderBottom: `3px solid ${tokens.gold}`}}
+      >
+        <Toolbar sx={{ gap: 2, flexWrap: "wrap", py: 0.5 }}>
+          <Box component="nav" aria-label="Main" sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+            <Box component={Link} to="/" sx={{ display: "flex", alignItems: "center", gap: 1, textDecoration: "none", color: "inherit" }}>
+              <PodiumMark />
+              <Typography component="span" sx={{ fontWeight: 800, fontSize: "1.3rem", letterSpacing: "-0.02em" }}>Podium</Typography>
+            </Box>
+            <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.75)", pl: 1.5, borderLeft: "1px solid rgba(255,255,255,0.25)" }}>
+              {me.data.tenant}
             </Typography>
-            <Typography variant="body2" color="text.secondary">{me.data.tenant}</Typography>
           </Box>
           <Box sx={{ flex: 1 }} />
           <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap aria-label="Signed in as">
-            <Chip size="small" label={ROLE_LABEL[me.data.role]} />
-            <Chip size="small" variant="outlined" label={`Time zone: ${me.data.timeZone}`} />
+            <Chip size="small" label={ROLE_LABEL[me.data.role]} sx={{ bgcolor: tokens.gold, color: tokens.navyInk }} />
+            <Chip size="small" variant="outlined" label={`Time zone: ${me.data.timeZone}`} sx={{ color: "#fff", borderColor: "rgba(255,255,255,0.4)" }} />
             <Typography variant="body2">{me.data.name}</Typography>
-            <Button size="small" onClick={signOut}>Switch user</Button>
+            <Button size="small" onClick={signOut} sx={{ color: "#fff" }}>Switch user</Button>
           </Stack>
         </Toolbar>
       </AppBar>
