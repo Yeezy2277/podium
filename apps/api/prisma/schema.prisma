@@ -1,0 +1,169 @@
+// Podium data model.
+//
+// Tenancy: every business row carries tenantId, and brand-level rows are
+// reached through brands the user may access. Times are UTC instants; money
+// is integer minor units plus an ISO 4217 currency.
+
+generator client {
+  provider      = "prisma-client-js"
+  // rhel-openssl-3.0.x is the Vercel/AWS Lambda runtime.
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DATABASE_URL_UNPOOLED")
+}
+
+model Tenant {
+  id        String     @id @default(cuid())
+  name      String
+  slug      String     @unique
+  createdAt DateTime   @default(now())
+  brands    Brand[]
+  users     User[]
+  campaigns Campaign[]
+  customers Customer[]
+}
+
+model Brand {
+  id        String          @id @default(cuid())
+  tenantId  String
+  tenant    Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String
+  /// ISO 4217. A campaign may only span brands that share one currency.
+  currency  String          @db.Char(3)
+  createdAt DateTime        @default(now())
+  users     UserBrand[]
+  campaigns CampaignBrand[]
+  orders    Order[]
+
+  @@index([tenantId])
+}
+
+enum Role {
+  OWNER
+  BRAND_MANAGER
+  VIEWER
+}
+
+model User {
+  id       String      @id @default(cuid())
+  tenantId String
+  tenant   Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  email    String      @unique
+  name     String
+  role     Role
+  /// IANA zone the admin works in; forms and reports use it, storage stays UTC.
+  timeZone String      @default("UTC")
+  /// Ignored for OWNER, who sees every brand of the tenant.
+  brands   UserBrand[]
+  campaigns Campaign[] @relation("CreatedBy")
+
+  @@index([tenantId])
+}
+
+model UserBrand {
+  userId  String
+  brandId String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  brand   Brand  @relation(fields: [brandId], references: [id], onDelete: Cascade)
+
+  @@id([userId, brandId])
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  LIVE
+  ENDED
+  CANCELLED
+}
+
+enum Metric {
+  TOTAL_SPEND
+  ORDER_COUNT
+}
+
+model Campaign {
+  id            String          @id @default(cuid())
+  tenantId      String
+  tenant        Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name          String
+  status        CampaignStatus  @default(DRAFT)
+  metric        Metric          @default(TOTAL_SPEND)
+  startsAt      DateTime
+  endsAt        DateTime
+  /// Orders below this amount don't count toward the leaderboard.
+  minOrderMinor Int             @default(0)
+  currency      String          @db.Char(3)
+  /// Bumped on every edit that moves the schedule. A queued transition carries
+  /// the version it was planned for and is ignored if the campaign has moved on.
+  scheduleVersion Int           @default(0)
+  /// Optimistic locking for concurrent edits from two admins.
+  version       Int             @default(1)
+  createdById   String
+  createdBy     User            @relation("CreatedBy", fields: [createdById], references: [id])
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  brands        CampaignBrand[]
+  prizes        Prize[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, startsAt])
+}
+
+model CampaignBrand {
+  campaignId String
+  brandId    String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  brand      Brand    @relation(fields: [brandId], references: [id], onDelete: Cascade)
+
+  @@id([campaignId, brandId])
+  @@index([brandId])
+}
+
+enum PrizeType {
+  COUPON
+  CASHBACK
+  GIFT
+}
+
+/// One row per paid place. Stored normalized (not a packed string) so places
+/// can be queried, typed and audited individually.
+model Prize {
+  id          String    @id @default(cuid())
+  campaignId  String
+  campaign    Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  place       Int
+  type        PrizeType
+  amountMinor Int
+  description String?
+
+  @@unique([campaignId, place])
+}
+
+model Customer {
+  id          String  @id @default(cuid())
+  tenantId    String
+  tenant      Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  externalRef String
+  displayName String
+  orders      Order[]
+
+  @@unique([tenantId, externalRef])
+}
+
+model Order {
+  id          String   @id @default(cuid())
+  brandId     String
+  brand       Brand    @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  amountMinor Int
+  placedAt    DateTime
+
+  @@index([brandId, placedAt])
+  @@index([customerId])
+}
