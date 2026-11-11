@@ -60,7 +60,13 @@ export class CampaignsService {
     const c = await this.prisma.campaign.findFirst({ where: { AND: [{ id }, this.visibleTo(actor)] }, include: withRelations });
     // Same 404 for "doesn't exist" and "not yours": don't confirm other tenants' ids.
     if (!c) throw notFound("Campaign not found");
-    return { ...toRow(c), minOrderMinor: c.minOrderMinor, prizes: c.prizes, scheduleVersion: c.scheduleVersion };
+    return {
+      ...toRow(c),
+      minOrderMinor: c.minOrderMinor,
+      // Mapped, not passed through: the API contract shouldn't grow when the table does.
+      prizes: c.prizes.map((p) => ({ place: p.place, type: p.type, amountMinor: p.amountMinor, description: p.description })),
+      scheduleVersion: c.scheduleVersion,
+    };
   }
 
   /** All brands share one currency, or prize amounts would be meaningless. */
@@ -163,9 +169,19 @@ export class CampaignsService {
     if (count === 0) throw conflict("Someone else saved this campaign while you were editing. Reload to see their changes.");
   }
 
+  /**
+   * Runs after the write has committed. If the queue is down, the save still
+   * stands: failing the request would tell the editor it didn't save when it
+   * did. The daily sweep applies the transition anyway, so log and move on.
+   */
   private async planNext(campaignId: string, c: Schedulable) {
     const t = nextTransition(c);
-    if (t) await this.scheduler.schedule({ ...t, campaignId });
+    if (!t) return;
+    try {
+      await this.scheduler.schedule({ ...t, campaignId });
+    } catch (err) {
+      this.log.error(`campaign ${campaignId}: scheduling ${t.to} failed, the sweep will apply it: ${err instanceof Error ? err.message : err}`);
+    }
   }
 
   /**
@@ -203,6 +219,8 @@ export class CampaignsService {
       select: { id: true, status: true, startsAt: true, endsAt: true, scheduleVersion: true },
     });
     const results = [];
+    // Sequential on purpose: each step is a conditional update that must see
+    // the previous one, and a daily sweep touches a handful of rows.
     for (const c of due) {
       // A campaign whose whole window passed unnoticed goes SCHEDULED → LIVE → ENDED in one sweep.
       let t = nextTransition(c);
@@ -225,7 +243,9 @@ export class CampaignsService {
 
     // One aggregate query with a window function: ranking happens in Postgres,
     // not by loading every order into memory. RANK() gives ties the same place.
-    const rows = await this.prisma.$queryRaw<{ customerId: string; displayName: string; score: bigint; orders: bigint; rank: bigint }[]>`
+    // Page and total in one transaction so they agree with each other.
+    const [rows, [{ total }]] = await this.prisma.$transaction([
+      this.prisma.$queryRaw<{ customerId: string; displayName: string; score: bigint; orders: bigint; rank: bigint }[]>`
       SELECT o."customerId", cu."displayName",
              ${score} AS score, COUNT(*) AS orders,
              RANK() OVER (ORDER BY ${score} DESC) AS rank
@@ -235,13 +255,13 @@ export class CampaignsService {
       WHERE o."placedAt" >= ${startsAt} AND o."placedAt" < ${endsAt} AND o."amountMinor" >= ${c.minOrderMinor}
       GROUP BY o."customerId", cu."displayName"
       ORDER BY score DESC, o."customerId"
-      LIMIT ${pageSize} OFFSET ${page * pageSize}`;
-
-    const [{ total }] = await this.prisma.$queryRaw<{ total: bigint }[]>`
+      LIMIT ${pageSize} OFFSET ${page * pageSize}`,
+      this.prisma.$queryRaw<[{ total: bigint }]>`
       SELECT COUNT(DISTINCT o."customerId") AS total
       FROM "Order" o
       JOIN "CampaignBrand" cb ON cb."brandId" = o."brandId" AND cb."campaignId" = ${id}
-      WHERE o."placedAt" >= ${startsAt} AND o."placedAt" < ${endsAt} AND o."amountMinor" >= ${c.minOrderMinor}` as [{ total: bigint }];
+      WHERE o."placedAt" >= ${startsAt} AND o."placedAt" < ${endsAt} AND o."amountMinor" >= ${c.minOrderMinor}`,
+    ]);
 
     const prizeByPlace = new Map(c.prizes.map((p) => [p.place, p]));
     return {
