@@ -4,6 +4,7 @@ import { ActorGuard, CurrentActor, sessionSecret } from "./auth/actor";
 import { issueToken } from "./auth/token";
 import { ZodPipe } from "./common/http";
 import type { Actor } from "./domain/access";
+import { demoLoginEnabled } from "./config";
 import { PrismaService } from "./prisma.service";
 
 const DemoLogin = z.object({ email: z.string().email() });
@@ -15,7 +16,7 @@ export class MeController {
   /** The demo users a visitor can sign in as. Only exposed when DEMO_LOGIN=true. */
   @Get("auth/demo-users")
   async demoUsers() {
-    if (process.env.DEMO_LOGIN !== "true") throw new ForbiddenException();
+    if (!demoLoginEnabled()) throw new ForbiddenException();
     const users = await this.prisma.user.findMany({
       orderBy: [{ tenantId: "asc" }, { role: "asc" }],
       select: { email: true, name: true, role: true, timeZone: true, tenant: { select: { name: true } } },
@@ -25,10 +26,29 @@ export class MeController {
 
   @Post("auth/demo-login")
   async demoLogin(@Body(new ZodPipe(DemoLogin)) body: z.infer<typeof DemoLogin>) {
-    if (process.env.DEMO_LOGIN !== "true") throw new ForbiddenException();
+    if (!demoLoginEnabled()) throw new ForbiddenException();
     const user = await this.prisma.user.findUnique({ where: { email: body.email } });
     if (!user) throw new BadRequestException("No such demo user");
     return { token: issueToken(user.id, sessionSecret()) };
+  }
+
+  /** Ops check: which modes are on and whether the database answers. Flags only, never values. */
+  @Get("health")
+  async health() {
+    const started = Date.now();
+    let db = "ok";
+    try {
+      await this.prisma.$queryRaw`SELECT 1`;
+    } catch {
+      db = "unreachable";
+    }
+    return {
+      db,
+      dbMs: Date.now() - started,
+      demoLogin: demoLoginEnabled(),
+      sessionSecret: Boolean(process.env.SESSION_SECRET),
+      scheduler: process.env.QSTASH_TOKEN && process.env.PUBLIC_API_URL ? "qstash" : "sweep-only",
+    };
   }
 
   /** Who am I, and what can I touch: drives the admin's brand pickers and time zone. */
