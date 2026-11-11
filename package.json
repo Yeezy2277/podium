@@ -1,0 +1,13 @@
+{
+  "name": "podium",
+  "private": true,
+  "description": "Podium — a multi-tenant promo engine for e-commerce: leaderboard campaigns, scheduled lifecycles, time-zone-aware admin, NestJS + Prisma API and a React/MUI back office.",
+  "workspaces": ["packages/*", "apps/*"],
+  "scripts": {
+    "build": "npm run build -w @podium/shared && npm run build -w @podium/api && npm run build -w @podium/admin",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "dev:api": "npm run dev -w @podium/api",
+    "dev:admin": "npm run dev -w @podium/admin"
+  }
+}
