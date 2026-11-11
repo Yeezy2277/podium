@@ -17,6 +17,7 @@ export const STATUS_COLOR: Record<CampaignStatus, "default" | "info" | "success"
   DRAFT: "default",
   SCHEDULED: "info",
   LIVE: "success",
-  ENDED: "warning",
+  // Finished is not a warning: neutral, so amber stays reserved for real caution.
+  ENDED: "default",
   CANCELLED: "error",
 };

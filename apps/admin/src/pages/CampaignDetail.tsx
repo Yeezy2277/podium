@@ -7,6 +7,7 @@ import { api, ApiError } from "../api";
 import { useMe } from "../App";
 import { STATUS_COLOR, formatInZone, money } from "../format";
 import { Loading } from "../ui";
+import { Rank } from "../brand";
 
 const PAGE_SIZES = [10, 25, 50];
 
@@ -61,7 +62,7 @@ export function CampaignDetailPage() {
   const editable = canEdit && ["DRAFT", "SCHEDULED", "LIVE"].includes(c.status);
 
   const columns: GridColDef<LeaderboardRow>[] = [
-    { field: "rank", headerName: "#", width: 70 },
+    { field: "rank", headerName: "Place", width: 80, renderCell: ({ row }) => <Rank rank={row.rank} /> },
     { field: "displayName", headerName: "Customer", flex: 1, minWidth: 160 },
     {
       field: "score",
