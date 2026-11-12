@@ -45,7 +45,7 @@ export function LoginPage() {
             Podium
           </Typography>
           <Typography sx={{ fontFamily: FONT_NARROW, textTransform: "uppercase", letterSpacing: "0.14em", fontWeight: 500, mt: 1.5, color: "rgba(255,255,255,0.8)" }}>
-            Leaderboard promotions · back office
+            Leaderboard promotions back office
           </Typography>
         </Box>
       </Container>

@@ -81,7 +81,7 @@ function Shell() {
         </ErrorBoundary>
       </Container>
       <Container component="footer" maxWidth="lg" sx={{ pb: 4, color: "text.secondary", fontSize: 13 }}>
-        Demo data · times shown in {me.data.timeZone} ·{" "}
+        Demo data. Times shown in {me.data.timeZone}.{" "}
         <MuiLink href="https://github.com/Yeezy2277/podium">source</MuiLink>
       </Container>
     </MeContext.Provider>
