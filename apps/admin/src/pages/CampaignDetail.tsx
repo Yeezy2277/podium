@@ -8,6 +8,7 @@ import { useMe } from "../App";
 import { STATUS_COLOR, formatInZone, money } from "../format";
 import { Loading } from "../ui";
 import { Rank } from "../brand";
+import { ArrowBackIcon } from "../icons";
 
 const PAGE_SIZES = [10, 25, 50];
 
@@ -85,7 +86,7 @@ export function CampaignDetailPage() {
   return (
     <Stack spacing={2}>
       <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
-        <Button component={Link} to="/" size="small">← Campaigns</Button>
+        <Button component={Link} to="/" size="small" startIcon={<ArrowBackIcon />}>Campaigns</Button>
         <Typography variant="h5" component="h1" fontWeight={700} sx={{ flex: 1 }}>{c.name}</Typography>
         <Chip color={STATUS_COLOR[c.status]} label={c.status.toLowerCase()} />
         {editable && <Button component={Link} to={`/campaigns/${id}/edit`} variant="outlined">Edit</Button>}

@@ -8,6 +8,7 @@ import { useMe } from "../App";
 import { toLocalInput } from "../format";
 import { Loading } from "../ui";
 import type { Me } from "../api";
+import { ArrowBackIcon, CloseIcon } from "../icons";
 
 /** `key` is a client-side id: rows can be removed, so the index can't identify them. */
 type PrizeDraft = { key: string; type: (typeof PRIZE_TYPES)[number]; amount: string };
@@ -135,7 +136,7 @@ export function CampaignEditor({ existing }: { existing?: CampaignDetail }) {
     <Box component="form" onSubmit={submit} noValidate>
       <Stack spacing={2} sx={{ maxWidth: 760 }}>
         <Stack direction="row" spacing={2} alignItems="center">
-          <Button component={Link} to={id ? `/campaigns/${id}` : "/"} size="small">← Back</Button>
+          <Button component={Link} to={id ? `/campaigns/${id}` : "/"} size="small" startIcon={<ArrowBackIcon />}>Back</Button>
           <Typography variant="h5" component="h1" fontWeight={700}>{id ? "Edit campaign" : "New campaign"}</Typography>
         </Stack>
         {live && <Alert severity="info">This campaign is live: you can rename it or move its end. Brands, prizes and the minimum order are locked.</Alert>}
@@ -222,7 +223,7 @@ export function CampaignEditor({ existing }: { existing?: CampaignDetail }) {
                     error={!!errors[`prizes.${i}.amountMinor`]} helperText={errors[`prizes.${i}.amountMinor`]}
                   />
                   <IconButton aria-label={`Remove prize ${i + 1}`} disabled={live || draft.prizes.length === 1} onClick={() => set("prizes", draft.prizes.filter((x) => x.key !== p.key))}>
-                    <span aria-hidden="true">×</span>
+                    <CloseIcon fontSize="small" />
                   </IconButton>
                 </Stack>
               ))}
