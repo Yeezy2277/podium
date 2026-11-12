@@ -12,7 +12,7 @@ brands, and Podium handles scheduling, access, time zones and ranking.
 
 **Live:** [podium.vitaliipopov.dev](https://podium.vitaliipopov.dev) (sign in as any demo user)
 
-**Stack:** NestJS 10 · Prisma 6 · PostgreSQL · React 18 + MUI DataGrid · TanStack Query · Zod shared between API and UI · Upstash QStash · Vercel
+**Stack:** NestJS 10, Prisma 6, PostgreSQL, React 18 + MUI DataGrid, TanStack Query, Zod shared between API and UI, Upstash QStash, Vercel
 
 ## What's interesting
 
